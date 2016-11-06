@@ -14,31 +14,48 @@ library(jsonlite)
 options(osrm.server="http://beetle:5000/", osrm.mode="bicycle", osrm.log="log")
 #ifelse(!dir.exists(file.path(getwd(), getOption("osrm.log"))), dir.create(file.path(getwd(), getOption("osrm.log"))),FALSE)
 
-osrmMatchBuildQuery <- function(x, y, timestamps) {
-  # Build the request string for the match service in OSRM API v5.
-  #
-  # Args:
-  #   x: Longitude coordinante (degress).
-  #   y: Latitude coordinante (degress).
-  #   timestamps: List of timestamps (POSIXct), monotonic increasing.
-  #
-  # Returns:
-  #   URL request string
 
+#' osrmMatchBuildQuery function
+#'
+#' Build the request string for the match service in OSRM API v5.
+#' @param x Longitude coordinantes (degress).
+#' @param y Latitude coordinantes (degress).
+#' @param timestamps Array of timestamps (POSIXct) monotonically increasing.
+#' @radiuses Standard deviation of GPS precision used for map matching. If applicable use GPS accuracy.
+#' @return a url request string
+#' @keywords map-matching
+#' @export
+#' @examples
+#' osrmMatchBuildQuery()
+osrmMatchBuildQuery <- function(x, y, timestamps, radiuses=NULL) {
   # coords and timestamaps are collapsed into a single row
   points     <- paste(x,y,sep = ",",collapse = ";")
   timestamps <- paste(as.integer(timestamps), collapse = ";")
+  str.radiuses <- ""
+  if(!is.null(radiuses)){
+    str.radiuses <- paste(radiuses, collapse = ";")
+    str.radiuses <- paste("&radiuses=",str.radiuses, sep = "")
+  }
   # build the query
   request    <- paste(getOption("osrm.server"),
                       "match/v1/", getOption("osrm.mode"), "/",
                       points,
                       "?timestamps=", timestamps,
+                      str.radiuses,
                       "&geometries=geojson&annotations=true",
                       sep="")
   return (request)
 }
 
-
+#' osrmMatchExtractMatchings function
+#'
+#' Parse the matching output into a dataframe.
+#' @param matchings dataframe with the road geometry to be parsed.
+#' @return dataframe with the road geometry
+#' @keywords map-matching
+#' @export
+#' @examples
+#' osrmMatchExtractMatchings()
 osrmMatchExtractMatchings <- function(matchings) {
   coordinates <- data.frame()
   geom.id=1
@@ -48,6 +65,7 @@ osrmMatchExtractMatchings <- function(matchings) {
     ds <- as.data.frame(coord)
     names(ds) = c("x_geom","y_geom")
     ds$geom_idx <- geom.id-1
+    ds$geom_seq <- seq(length(ds)) # sequence
     ds$geom_confidence   <- matchings$confidence[geom.id]
     ds$geom_duration<- matchings$duration[geom.id]
     ds$geom_distance<- matchings$distance[geom.id]
@@ -142,7 +160,11 @@ osrmMatchLocations <- function(x, y, timestamps, loc.id, trip.id, seg.id){
   #   A list with two dataframes:
   #      - matched points, locations that were snapped to the network.
   #      - matching pathway, augmented locations including curves and corners.
-  request <- osrmMatchBuildQuery(x,y,timestamps)
+
+  # add a randon error
+  radiuses <- as.integer(runif(length(x),10,20))
+
+  request <- osrmMatchBuildQuery(x,y,timestamps,radiuses)
   out <- osrmMatchRequest(request, loc.id, trip.id, seg.id)
   return(out)
 }
